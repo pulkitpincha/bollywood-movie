@@ -1,0 +1,283 @@
+---
+title: "Bollywood_Dataset_Final"
+author: "Pulkit Pincha"
+date: "2024-04-30"
+output: html_document
+---
+
+```{r}
+# Load necessary libraries
+library(readxl)
+library(dplyr)
+library(ggplot2)
+library(corrplot)
+library(tidyr)
+library(caret)
+library(graphics)
+library(rpart)
+library(rpart.plot)
+
+# Dataset
+data <- read_excel("C:/Users/stimp/OneDrive/Desktop/Flame/OPSM324/final/Bollywood Box Office Success.xlsx")
+glimpse(data)
+```
+
+```{r Question 1}
+# Q1a
+# Average box office collections by release date type
+seasonal_collections <- data %>%
+  group_by(`Release_Date(N/LW/Festive)`) %>%
+  summarise(Average_Collection = mean(`Box_Office_Collection(in crores)`, na.rm = TRUE))
+
+# Bar plot visualization
+ggplot(seasonal_collections, aes(x = `Release_Date(N/LW/Festive)`, y = Average_Collection, fill = `Release_Date(N/LW/Festive)`)) +
+  geom_bar(stat = "identity") +
+  theme_minimal() +
+  labs(title = "Average Box Office Collections by Release Season",
+       x = "Season",
+       y = "Average Box Office Collection (in crores)") +
+  scale_fill_brewer(palette = "Pastel1")
+
+# Q1b
+# Impact of item songs on budget and box office collections
+item_song_impact <- data %>%
+  group_by(Item_Song_Y_N = `Item_Song(Y/N)`) %>%
+  summarise(Average_Budget = mean(`Budget(in crores)`, na.rm = TRUE),
+            Average_Box_Office_Collection = mean(`Box_Office_Collection(in crores)`, na.rm = TRUE)) %>%
+  pivot_longer(
+    cols = -Item_Song_Y_N,
+    names_to = "Metric",
+    values_to = "Value"
+  )
+
+# Plotting the results
+ggplot(item_song_impact, aes(x = factor(Item_Song_Y_N), y = Value, fill = factor(Item_Song_Y_N))) +
+  geom_bar(stat = "identity") +
+  facet_wrap(~Metric, scales = "free_y") +
+  labs(title = "Impact of Item Songs on Budget and Box Office Collections",
+       x = "Item Song (0 = No, 1 = Yes)",
+       y = "Average Value (in crores)") +
+  theme_minimal()
+
+# Q1c
+# Calculating correlations between YouTube metrics and box office collections
+youtube_metrics <- data %>%
+  select(Youtube_Views, Youtube_Likes, Youtube_Dislikes, Box_Office_Collection_in_crores = `Box_Office_Collection(in crores)`)
+
+correlations <- cor(youtube_metrics, use = "complete.obs")
+
+# Correlation matrix
+corrplot(correlations, method = "color", tl.col = "black", tl.srt = 45, tl.cex = 0.8, number.cex = 0.7, addCoef.col = "black")
+
+# Printing the correlation matrix
+print(correlations)
+
+# Q1d
+# Box office collections by lead actor category
+actor_category_impact <- data %>%
+  group_by(LEAD_ACTOR_CAT) %>%
+  summarise(Average_Box_Office_Collection = mean(`Box_Office_Collection(in crores)`, na.rm = TRUE))
+
+# Plotting the results
+ggplot(actor_category_impact, aes(x = LEAD_ACTOR_CAT, y = Average_Box_Office_Collection, fill = LEAD_ACTOR_CAT)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  labs(title = "Average Box Office Collections by Lead Actor Category",
+       x = "Lead Actor Category",
+       y = "Average Box Office Collection (in crores)") +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Pastel1")
+
+# Q1e
+# Standardizing the "Social subject" entries
+data$Movie_Content <- ifelse(tolower(data$Movie_Content) == "social subject", "Social Subject", data$Movie_Content)
+
+# Budgets by movie content type
+content_budget_impact <- data %>%
+  group_by(Movie_Content) %>%
+  summarise(Average_Budget = mean(`Budget(in crores)`, na.rm = TRUE))
+
+# Plotting the results
+ggplot(content_budget_impact, aes(x = Movie_Content, y = Average_Budget, fill = Movie_Content)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  labs(title = "Average Budgets by Movie Content Type",
+       x = "Movie Content Type",
+       y = "Average Budget (in crores)") +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Pastel1")
+
+```
+
+```{r Question 2}
+# Q2
+# Logistic regression using budget to predict success/failure
+model <- glm(`Success/Failure` ~ `Budget(in crores)`, data = data, family = binomial())
+summary(model)
+
+# Q2a
+# Solve for budget where success is equally likely as failure
+intercept <- coef(model)[1]
+slope <- coef(model)[2]
+budget_equal_prob <- -intercept / slope
+budget_equal_prob
+
+
+# Q2b
+# Sign of the slope coefficient
+coef(summary(model))
+
+
+# Q2c
+# Calculate probability of success for a specific budget (100 Cr)
+budget_specific <- 100
+log_odds <- intercept + slope * budget_specific
+prob_success <- exp(log_odds) / (1 + exp(log_odds))
+prob_success
+
+
+# Q2d
+# Make predictions
+predictions <- ifelse(predict(model, type = "response") > 0.5, "Success", "Failure")
+
+# Confusion matrix
+conf_matrix <- table(predictions, data$`Success/Failure`)
+conf_matrix
+
+# Calculating sensitivity and specificity
+TN <- conf_matrix[1, 1]  # True negatives
+FP <- conf_matrix[1, 2]  # False positives
+FN <- conf_matrix[2, 1]  # False negatives
+TP <- conf_matrix[2, 2]  # True positives
+
+sensitivity <- TP / (TP + FN)
+specificity <- TN / (TN + FP)
+
+sensitivity
+specificity
+
+```
+
+```{r Question 3}
+# Q3a
+# Factors
+data$Item_Song <- factor(data$`Item_Song(Y/N)`)
+data$Success_Failure <- factor(data$`Success/Failure`)
+
+# Logistic regression model with 'Item Song'
+model_item_song <- glm(Success_Failure ~ Item_Song, family = binomial(link = "logit"), data = data)
+
+# Summary of the model
+summary(model_item_song)
+
+# Calculating success probabilities for movies with and without item songs
+prob_with_item_song <- predict(model_item_song, newdata = data.frame(Item_Song = "1"), type = "response")
+prob_without_item_song <- predict(model_item_song, newdata = data.frame(Item_Song = "0"), type = "response")
+
+# Probabilities
+print(paste("Probability of success with item song: ", prob_with_item_song))
+print(paste("Probability of success without item song: ", prob_without_item_song))
+
+# Q3b
+# Logistic regression model with 'Budget'
+model_budget <- glm(Success_Failure ~ `Budget(in crores)`, family = binomial(link = "logit"), data = data)
+
+# Summary of the model
+summary(model_budget)
+
+# R-squared for comparison
+install.packages("pscl")
+library(pscl)
+pR2_item_song <- pR2(model_item_song)
+pR2_budget <- pR2(model_budget)
+
+# R-squared values
+pR2_item_song
+pR2_budget
+
+```
+
+```{r Question 4}
+# Q4
+# Load data
+data <- read_excel("C:/Users/stimp/OneDrive/Desktop/Flame/OPSM324/final/Bollywood Box Office Success.xlsx")
+
+# Converting and cleaning up factor levels for logistic regression
+data$`Item_Song(Y/N)` <- as.factor(data$`Item_Song(Y/N)`)
+data$`Success/Failure` <- factor(data$`Success/Failure`)
+data$`Release_Date(N/LW/Festive)` <- as.factor(data$`Release_Date(N/LW/Festive)`)
+data$`Genre-Defind` <- as.factor(data$`Genre-Defind`)
+data$Movie_Content <- as.factor(data$Movie_Content)
+data$Dir_CAT <- as.factor(data$Dir_CAT)
+data$LEAD_ACTOR_CAT <- as.factor(data$LEAD_ACTOR_CAT)
+data$Production_House_CAT <- as.factor(data$Production_House_CAT)
+data$Music_Dir_CAT <- as.factor(data$Music_Dir_CAT)
+
+# Train and Test
+set.seed(123)  
+train_indices <- sample(nrow(data), 0.8 * nrow(data)) 
+train_data <- data[train_indices, ]
+test_data <- data[-train_indices, ]
+
+# Building the logistic regression model
+full_model <- glm(`Success/Failure` ~ .- Movie_Name, data = train_data, family = "binomial")
+print(summary(full_model))
+
+# Model evaluation using cross-validation
+cv_controls <- trainControl(method = "cv", number = 10, classProbs = TRUE, 
+                            savePredictions = "final")
+
+# Convert the dependent variable to a factor with valid levels
+test_data$`Success/Failure` <- factor(test_data$`Success/Failure`)
+levels(test_data$`Success/Failure`) <- make.names(levels(test_data$`Success/Failure`))
+
+# Training the model
+cv_model <- train(`Success/Failure` ~ .- Movie_Name, data = test_data, 
+                  method = "glm", family = "binomial",
+                  trControl = cv_controls)
+
+cv_model <- train(`Success/Failure` ~ .- Movie_Name, data = test_data, 
+                  method = "glm", family = "binomial",
+                  trControl = cv_controls)
+
+# Printing cross-validation results
+print(cv_model)
+summary(cv_model)
+
+# Simplify model by focusing on more important predictors
+simplified_model <- glm(`Success/Failure` ~ Movie_Content + Earning_Ratio + `Box_Office_Collection(in crores)` + `Profit(in crores)` + Youtube_Likes, 
+                        data = train_data, family = "binomial")
+
+# Printing model summary
+print(summary(simplified_model))
+
+# Evaluating model using cross-validation
+set.seed(123)
+cv_controls <- trainControl(method = "cv", number = 10, classProbs = TRUE, 
+                            savePredictions = "final")
+cv_simplified_model <- train(`Success/Failure` ~ Movie_Content + Earning_Ratio + `Box_Office_Collection(in crores)` + `Profit(in crores)` + Youtube_Likes, 
+                             data = test_data, method = "glm", family = "binomial", trControl = cv_controls)
+
+# Printing cross-validation results
+print(cv_simplified_model)
+
+# Decision Tree model
+dt_model <- rpart(`Success/Failure` ~ . - Movie_Name, data = train_data, method = "class")
+rpart.plot(dt_model)
+
+var_importance <- varImp(dt_model)
+var_importance
+
+dt_model_1 <- rpart(`Success/Failure` ~  Movie_Content + Earning_Ratio + `Box_Office_Collection(in crores)` + `Profit(in crores)` + Youtube_Likes, 
+                    data = train_data,
+                    method = "class")
+
+rpart.plot(dt_model_1)
+
+#confusion matrix- decision tree
+tree_pred <- predict(dt_model_1, test_data, type = "class")
+tree_pred_factor <- factor(tree_pred)
+test_data$S_F <- factor(test_data$`Success/Failure`, levels = c("X0", "X1"))
+conf_matrix_dt <- confusionMatrix(tree_pred_factor, test_data$`Success/Failure`)
+
+print(conf_matrix_dt)
+
+```
